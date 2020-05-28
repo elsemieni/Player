@@ -24,6 +24,7 @@
 #include <tuple>
 #include <chrono>
 #include <cassert>
+#include <unordered_map>
 
 #include "async_handler.h"
 #include "cache.h"
@@ -148,7 +149,24 @@ namespace {
 			if (path.empty()) {
 				Output::Warning("Image not found: {}/{}", folder_name, filename);
 			} else {
-				bmp = Bitmap::Create(path, transparent, flags);
+				const static std::unordered_map<std::string,ImageBlittingMode > matchBlitting{
+					{".add",ImageBlittingMode::Additive},
+					{".mul",ImageBlittingMode::Multiply},
+					{".sub",ImageBlittingMode::Difference},
+					{".exc",ImageBlittingMode::Exclusion},
+					{".ove",ImageBlittingMode::Overlay},
+					{".drk",ImageBlittingMode::Darken},
+					{".lgh",ImageBlittingMode::Lighten},
+					{".slg",ImageBlittingMode::SoftLight},
+					{".hlg",ImageBlittingMode::HardLight},
+					{".clb",ImageBlittingMode::ColorBurn},
+					{".sat",ImageBlittingMode::Saturate}
+				};
+
+				const std::string blendingExtension = filename.length() > 3 ? filename.substr( filename.length() -  4): filename;
+				const ImageBlittingMode currentBlit = matchBlitting.count(blendingExtension) ? matchBlitting.at(blendingExtension) : ImageBlittingMode::Normal;
+
+				bmp = Bitmap::Create(path, transparent, flags, currentBlit);
 				if (!bmp) {
 					Output::Warning("Invalid image: {}/{}", folder_name, filename);
 				}

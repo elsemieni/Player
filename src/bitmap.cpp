@@ -47,8 +47,8 @@ BitmapRef Bitmap::Create(int width, int height, const Color& color) {
 	return surface;
 }
 
-BitmapRef Bitmap::Create(const std::string& filename, bool transparent, uint32_t flags) {
-	BitmapRef bmp = std::make_shared<Bitmap>(filename, transparent, flags);
+BitmapRef Bitmap::Create(const std::string& filename, bool transparent, uint32_t flags, ImageBlittingMode blitting) {
+	BitmapRef bmp = std::make_shared<Bitmap>(filename, transparent, flags, blitting);
 
 	if (!bmp->pixels()) {
 		return BitmapRef();
@@ -91,7 +91,7 @@ Bitmap::Bitmap(void *pixels, int width, int height, int pitch, const DynamicForm
 	Init(width, height, pixels, pitch, false);
 }
 
-Bitmap::Bitmap(const std::string& filename, bool transparent, uint32_t flags) {
+Bitmap::Bitmap(const std::string& filename, bool transparent, uint32_t flags, ImageBlittingMode blitting) {
 	format = (transparent ? pixel_format : opaque_pixel_format);
 	pixman_format = find_format(format);
 
@@ -133,6 +133,8 @@ Bitmap::Bitmap(const std::string& filename, bool transparent, uint32_t flags) {
 	ConvertImage(w, h, pixels, transparent);
 
 	CheckPixels(flags);
+
+	image_blitting_mode = blitting;
 }
 
 Bitmap::Bitmap(const uint8_t* data, unsigned bytes, bool transparent, uint32_t flags) {
@@ -550,8 +552,8 @@ namespace {
 			return nullptr;
 		}
 
-		if (!opacity.IsSplit()) {
-			pixman_color_t tcolor = {0, 0, 0, static_cast<uint16_t>(opacity.Value() << 8)};
+		if (!opacity.IsSplit()) { //seguramente por el comando del 2003
+			pixman_color_t tcolor = {0, 0, 0, static_cast<uint16_t>(opacity.Value() << 8)}; //255 mult
 			return PixmanImagePtr{ pixman_image_create_solid_fill(&tcolor) };
 		}
 
@@ -593,7 +595,7 @@ void Bitmap::BlitFast(int x, int y, Bitmap const & src, Rect const & src_rect, O
 		return;
 	}
 
-	pixman_image_composite32(PIXMAN_OP_SRC,
+	pixman_image_composite32(src.GetBlittingMethod(),
 		src.bitmap.get(),
 		nullptr, bitmap.get(),
 		src_rect.x, src_rect.y,
@@ -722,7 +724,7 @@ void Bitmap::FillRect(Rect const& dst_rect, const Color &color) {
 
 	auto timage = PixmanImagePtr{pixman_image_create_solid_fill(&pcolor)};
 
-	pixman_image_composite32(PIXMAN_OP_OVER,
+	pixman_image_composite32(GetBlittingMethod(),
 			timage.get(), nullptr, bitmap.get(),
 			0, 0,
 			0, 0,
@@ -941,7 +943,7 @@ void Bitmap::BlendBlit(int x, int y, Bitmap const& src, Rect const& src_rect, co
 	pixman_color_t tcolor = PixmanColor(color);
 	auto timage = PixmanImagePtr{ pixman_image_create_solid_fill(&tcolor) };
 
-	pixman_image_composite32(PIXMAN_OP_OVER,
+	pixman_image_composite32(GetBlittingMethod(),
 							 timage.get(), src.bitmap.get(), bitmap.get(),
 							 0, 0,
 							 src_rect.x, src_rect.y,
@@ -996,7 +998,7 @@ void Bitmap::Flip(bool horizontal, bool vertical) {
 
 	pixman_image_set_transform(temp.get(), &xform.matrix);
 
-	pixman_image_composite32(PIXMAN_OP_SRC,
+	pixman_image_composite32(GetBlittingMethod(),
 							 temp.get(), nullptr, bitmap.get(),
 							 0, 0, 0, 0, 0, 0, w, h);
 }
@@ -1010,7 +1012,7 @@ void Bitmap::MaskedBlit(Rect const& dst_rect, Bitmap const& mask, int mx, int my
 
 	auto source = PixmanImagePtr{ pixman_image_create_solid_fill(&tcolor) };
 
-	pixman_image_composite32(PIXMAN_OP_OVER,
+	pixman_image_composite32(GetBlittingMethod(),
 							 source.get(), mask.bitmap.get(), bitmap.get(),
 							 0, 0,
 							 mx, my,
@@ -1019,7 +1021,7 @@ void Bitmap::MaskedBlit(Rect const& dst_rect, Bitmap const& mask, int mx, int my
 }
 
 void Bitmap::MaskedBlit(Rect const& dst_rect, Bitmap const& mask, int mx, int my, Bitmap const& src, int sx, int sy) {
-	pixman_image_composite32(PIXMAN_OP_OVER,
+	pixman_image_composite32(GetBlittingMethod(),
 							 src.bitmap.get(), mask.bitmap.get(), bitmap.get(),
 							 sx, sy,
 							 mx, my,
@@ -1104,7 +1106,7 @@ void Bitmap::RotateZoomOpacityBlit(int x, int y, int ox, int oy,
 
 	auto mask = CreateMask(opacity, src_rect, &inv);
 
-	pixman_image_composite32(PIXMAN_OP_OVER,
+	pixman_image_composite32(GetBlittingMethod(),
 							 src_img, mask.get(), bitmap.get(),
 							 dst_rect.x, dst_rect.y,
 							 dst_rect.x, dst_rect.y,
@@ -1131,12 +1133,46 @@ void Bitmap::ZoomOpacityBlit(int x, int y, int ox, int oy,
 	StretchBlit(dst_rect, src, src_rect, opacity);
 }
 
+pixman_op_t Bitmap::GetBlittingMethod() const {
+
+	switch(image_blitting_mode) {
+
+		case ImageBlittingMode::Normal:
+				return PIXMAN_OP_OVER;
+		case ImageBlittingMode::Additive:
+				return PIXMAN_OP_ADD;
+		case ImageBlittingMode::Multiply:
+				return PIXMAN_OP_MULTIPLY;
+		case ImageBlittingMode::Saturate:
+				return PIXMAN_OP_SATURATE;
+		case ImageBlittingMode::Overlay:
+				return PIXMAN_OP_OVERLAY;
+		case ImageBlittingMode::Darken:
+				return PIXMAN_OP_DARKEN;
+		case ImageBlittingMode::Lighten:
+				return PIXMAN_OP_LIGHTEN;
+		case ImageBlittingMode::ColorBurn:
+				return PIXMAN_OP_COLOR_BURN;
+		case ImageBlittingMode::Difference:
+				return PIXMAN_OP_DIFFERENCE;
+		case ImageBlittingMode::Exclusion:
+				return PIXMAN_OP_EXCLUSION;
+		case ImageBlittingMode::SoftLight:
+				return PIXMAN_OP_SOFT_LIGHT;
+		case ImageBlittingMode::HardLight:
+				return PIXMAN_OP_HARD_LIGHT;
+		default:
+				return PIXMAN_OP_OVER;
+	}
+}
+
 pixman_op_t Bitmap::GetOperator(pixman_image_t* mask) const {
-	if (!mask && (!GetTransparent() || GetImageOpacity() == ImageOpacity::Opaque)) {
+
+	if  (image_blitting_mode == ImageBlittingMode::Normal && !mask && (!GetTransparent() || GetImageOpacity() == ImageOpacity::Opaque)) {
 		return PIXMAN_OP_SRC;
 	}
 
-	return PIXMAN_OP_OVER;
+	return GetBlittingMethod();
 }
 
 void Bitmap::EdgeMirrorBlit(int x, int y, Bitmap const& src, Rect const& src_rect, bool mirror_x, bool mirror_y, Opacity const& opacity) {

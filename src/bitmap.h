@@ -37,6 +37,25 @@
 struct Transform;
 
 /**
+ * Enum used to describe the blitting method of an entire
+ * image
+ */
+enum class ImageBlittingMode {
+			Normal,
+			Additive,
+			Multiply,
+			Saturate,
+			Overlay,
+			Darken,
+			Lighten,
+			ColorBurn,
+			Difference,
+			Exclusion,
+			SoftLight,
+			HardLight
+};
+
+/**
  * Base Bitmap class.
  */
 class Bitmap {
@@ -56,8 +75,9 @@ public:
 	 * @param filename image file to load.
 	 * @param transparent allow transparency on bitmap.
 	 * @param flags bitmap flags.
+	 * @param blitting blitting mode for the bitmap
 	 */
-	static BitmapRef Create(const std::string& filename, bool transparent = true, uint32_t flags = 0);
+	static BitmapRef Create(const std::string& filename, bool transparent = true, uint32_t flags = 0, ImageBlittingMode blitting = ImageBlittingMode::Normal);
 
 	/*
 	 * Loads a bitmap from memory.
@@ -100,7 +120,7 @@ public:
 	static BitmapRef Create(void *pixels, int width, int height, int pitch, const DynamicFormat& format);
 
 	Bitmap(int width, int height, bool transparent);
-	Bitmap(const std::string& filename, bool transparent, uint32_t flags);
+	Bitmap(const std::string& filename, bool transparent, uint32_t flags, ImageBlittingMode blitting = ImageBlittingMode::Normal);
 	Bitmap(const uint8_t* data, unsigned bytes, bool transparent, uint32_t flags);
 	Bitmap(Bitmap const& source, Rect const& src_rect, bool transparent);
 	Bitmap(void *pixels, int width, int height, int pitch, const DynamicFormat& format);
@@ -538,6 +558,7 @@ protected:
 	ImageOpacity image_opacity = ImageOpacity::Partial;
 	TileOpacity tile_opacity;
 	Color bg_color, sh_color;
+	ImageBlittingMode image_blitting_mode = ImageBlittingMode::Normal;
 
 	/** Bitmap data. */
 	PixmanImagePtr bitmap;
@@ -564,6 +585,7 @@ protected:
 
 	static pixman_format_code_t find_format(const DynamicFormat& format);
 
+	pixman_op_t GetBlittingMethod() const;
 	pixman_op_t GetOperator(pixman_image_t* mask = nullptr) const;
 	bool read_only = false;
 };
